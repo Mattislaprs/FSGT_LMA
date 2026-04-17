@@ -1,26 +1,9 @@
-import math
-from pathlib import Path
 from collections import defaultdict
 
 import streamlit as st
 import pandas as pd
 
-@st.cache_data
-def load_data(uploaded_file):
-    resultats = pd.read_excel(uploaded_file, sheet_name="Resultats", engine="openpyxl")
-    details = pd.read_excel(uploaded_file, sheet_name="Matchs", engine="openpyxl")
-    return resultats, details
-
-st.set_page_config(page_title="Stats Matchs", layout="wide")
-
-uploaded_file = st.file_uploader("Dépose ton fichier Excel", type=["xlsx"])
-
-if uploaded_file is None:
-    st.info("Ajoute un fichier Excel pour afficher les données.")
-    st.stop()
-
-resultats_df, details_df = load_data(uploaded_file)
-
+ALIASES = {}
 
 def normalize_name(name):
     if pd.isna(name) or name is None:
@@ -28,12 +11,10 @@ def normalize_name(name):
     name = str(name).strip()
     return ALIASES.get(name, name)
 
-
 @st.cache_data
-
-def load_data(file_path: Path):
-    resultats = pd.read_excel(file_path, sheet_name="Resultats")
-    matchs = pd.read_excel(file_path, sheet_name="Matchs")
+def load_data(uploaded_file):
+    resultats = pd.read_excel(uploaded_file, sheet_name="Resultats", engine="openpyxl")
+    matchs = pd.read_excel(uploaded_file, sheet_name="Matchs", engine="openpyxl")
 
     resultats.columns = [str(c).strip() for c in resultats.columns]
     matchs.columns = [str(c).strip() for c in matchs.columns]
@@ -44,7 +25,6 @@ def load_data(file_path: Path):
     resultats["Competition"] = resultats["Competition"].fillna("Non renseignée").astype(str).str.strip()
     resultats["MVP"] = resultats["MVP"].fillna("").astype(str).str.strip()
 
-    # Parse du score pour extraire buts marqués / encaissés
     gf, ga = [], []
     for score in resultats["Score"]:
         parts = str(score).split("-")
@@ -58,6 +38,7 @@ def load_data(file_path: Path):
         else:
             gf.append(None)
             ga.append(None)
+
     resultats["Buts marqués"] = gf
     resultats["Buts encaissés"] = ga
 
@@ -72,14 +53,13 @@ def load_data(file_path: Path):
 
     resultats["Résultat"] = resultats.apply(get_result_label, axis=1)
 
-    # Liste des MVP pour chaque match
     resultats["MVP_list"] = resultats["MVP"].apply(
         lambda x: [normalize_name(n) for n in str(x).split(",") if str(n).strip()]
     )
 
-    # --- Parsing de la feuille Matchs par blocs ---
     rows = []
     current_match = None
+    current_occurrence = 0
     match_occurrence = defaultdict(int)
 
     for _, row in matchs.iterrows():
@@ -88,7 +68,6 @@ def load_data(file_path: Path):
         goals = row.get("But(s)")
         assists = row.get("Passe(s) dé(s)")
 
-        # Nouvelle entête de bloc match
         if pd.notna(match_name):
             current_match = str(match_name).strip()
             match_occurrence[current_match] += 1
@@ -96,7 +75,6 @@ def load_data(file_path: Path):
         elif current_match is None:
             continue
 
-        # Ligne vide entre deux blocs
         if pd.isna(player):
             continue
 
@@ -116,7 +94,6 @@ def load_data(file_path: Path):
 
     details = pd.DataFrame(rows)
 
-    # On relie les résultats et les détails par adversaire + numéro d'occurrence
     resultats = resultats.sort_values("Date").reset_index(drop=True)
     resultats["Occurrence"] = resultats.groupby("Adversaire").cumcount() + 1
     resultats["match_id"] = resultats.index + 1
@@ -127,7 +104,6 @@ def load_data(file_path: Path):
         how="left",
     )
 
-    # Ajout du statut MVP par joueur pour chaque match
     details["MVP du match"] = details.apply(
         lambda r: "Oui" if isinstance(r["MVP_list"], list) and r["Joueur"] in r["MVP_list"] else "Non",
         axis=1,
@@ -135,9 +111,15 @@ def load_data(file_path: Path):
 
     return resultats, details
 
+st.set_page_config(page_title="Stats Matchs", layout="wide")
 
-resultats_df, details_df = load_data(FILE_PATH)
+uploaded_file = st.file_uploader("Dépose ton fichier Excel", type=["xlsx"])
 
+if uploaded_file is None:
+    st.info("Ajoute un fichier Excel pour afficher les données.")
+    st.stop()
+
+resultats_df, details_df = load_data(uploaded_file)
 
 # -------------------------------
 # Sidebar
@@ -155,21 +137,22 @@ if competition_selected != "Toutes":
 if adversaire_selected != "Tous":
     filtered_resultats = filtered_resultats[filtered_resultats["Adversaire"] == adversaire_selected]
 
-
 # -------------------------------
 # Header
 # -------------------------------
 st.title("⚽ Consultation des matchs et statistiques joueurs")
-st.caption("Application Streamlit basée sur le fichier Stats_matchs.xlsx")
+st.caption("Application Streamlit basée sur un fichier Excel importé")
 
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Nombre de matchs", len(filtered_resultats))
 col2.metric("Buts marqués", int(filtered_resultats["Buts marqués"].fillna(0).sum()))
 col3.metric("Buts encaissés", int(filtered_resultats["Buts encaissés"].fillna(0).sum()))
-col4.metric("Différence de buts", int(filtered_resultats["Buts marqués"].fillna(0).sum() - filtered_resultats["Buts encaissés"].fillna(0).sum()))
+col4.metric(
+    "Différence de buts",
+    int(filtered_resultats["Buts marqués"].fillna(0).sum() - filtered_resultats["Buts encaissés"].fillna(0).sum())
+)
 
 onglet_matchs, onglet_joueurs, onglet_stats = st.tabs(["Matchs", "Joueurs", "Statistiques"])
-
 
 # -------------------------------
 # Onglet Matchs
@@ -196,7 +179,11 @@ with onglet_matchs:
         selected_match = match_options.loc[match_options["label"] == selected_label].iloc[0]
 
         st.markdown(
-            f"**Date :** {selected_match['Date'].strftime('%d/%m/%Y')}  \\\n**Adversaire :** {selected_match['Adversaire']}  \\\n**Compétition :** {selected_match['Competition']}  \\\n**Score :** {selected_match['Score']}  \\\n**MVP :** {selected_match['MVP'] if selected_match['MVP'] else 'Non renseigné'}"
+            f"**Date :** {selected_match['Date'].strftime('%d/%m/%Y')}  \n"
+            f"**Adversaire :** {selected_match['Adversaire']}  \n"
+            f"**Compétition :** {selected_match['Competition']}  \n"
+            f"**Score :** {selected_match['Score']}  \n"
+            f"**MVP :** {selected_match['MVP'] if selected_match['MVP'] else 'Non renseigné'}"
         )
 
         details_match = details_df[details_df["match_id"] == selected_match["match_id"]].copy()
@@ -205,7 +192,6 @@ with onglet_matchs:
 
         st.markdown("#### Joueurs présents et statistiques")
         st.dataframe(details_match, use_container_width=True, hide_index=True)
-
 
 # -------------------------------
 # Onglet Joueurs
@@ -251,7 +237,6 @@ with onglet_joueurs:
     )
     st.dataframe(resume_joueurs, use_container_width=True, hide_index=True)
 
-
 # -------------------------------
 # Onglet Statistiques
 # -------------------------------
@@ -285,31 +270,25 @@ with onglet_stats:
 
         with c1:
             st.markdown("### 🥇 Meilleurs buteurs")
-            top_buteurs = (
-                classement_joueurs[["Joueur", "Buts", "Matchs joués"]]
-                .sort_values(["Buts", "Matchs joués", "Joueur"], ascending=[False, False, True])
-                .reset_index(drop=True)
-            )
+            top_buteurs = classement_joueurs[["Joueur", "Buts", "Matchs joués"]].sort_values(
+                ["Buts", "Matchs joués", "Joueur"], ascending=[False, False, True]
+            ).reset_index(drop=True)
             top_buteurs.index = top_buteurs.index + 1
             st.dataframe(top_buteurs, use_container_width=True)
 
         with c2:
             st.markdown("### 🎯 Meilleurs passeurs")
-            top_passeurs = (
-                classement_joueurs[["Joueur", "Passes décisives", "Matchs joués"]]
-                .sort_values(["Passes décisives", "Matchs joués", "Joueur"], ascending=[False, False, True])
-                .reset_index(drop=True)
-            )
+            top_passeurs = classement_joueurs[["Joueur", "Passes décisives", "Matchs joués"]].sort_values(
+                ["Passes décisives", "Matchs joués", "Joueur"], ascending=[False, False, True]
+            ).reset_index(drop=True)
             top_passeurs.index = top_passeurs.index + 1
             st.dataframe(top_passeurs, use_container_width=True)
 
         with c3:
             st.markdown("### 👑 Classement des MVP")
-            top_mvp = (
-                classement_joueurs[["Joueur", "MVP", "Matchs joués"]]
-                .sort_values(["MVP", "Matchs joués", "Joueur"], ascending=[False, False, True])
-                .reset_index(drop=True)
-            )
+            top_mvp = classement_joueurs[["Joueur", "MVP", "Matchs joués"]].sort_values(
+                ["MVP", "Matchs joués", "Joueur"], ascending=[False, False, True]
+            ).reset_index(drop=True)
             top_mvp.index = top_mvp.index + 1
             st.dataframe(top_mvp, use_container_width=True)
 
@@ -320,13 +299,3 @@ with onglet_stats:
         ).reset_index(drop=True)
         classement_general.index = classement_general.index + 1
         st.dataframe(classement_general, use_container_width=True)
-
-
-with st.expander("Voir le code à adapter pour ton propre fichier"):
-    st.code(
-        """
-# Pour lancer l'application dans le terminal :
-streamlit run app_streamlit_matchs.py
-        """.strip(),
-        language="bash",
-    )
