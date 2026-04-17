@@ -2,19 +2,22 @@ import math
 from pathlib import Path
 from collections import defaultdict
 
-import pandas as pd
 import streamlit as st
+import pandas as pd
 
+st.set_page_config(page_title="Stats Matchs", layout="wide")
 
-st.set_page_config(page_title="Suivi des matchs", page_icon="⚽", layout="wide")
+uploaded_file = st.file_uploader(
+    "Dépose ton fichier Excel",
+    type=["xlsx"]
+)
 
-FILE_PATH = Path(__file__).with_name("Stats_matchs.xlsx")
+if uploaded_file is None:
+    st.info("Ajoute un fichier Excel pour afficher les données.")
+    st.stop()
 
-# Permet de fusionner d'éventuels surnoms/variantes de noms si besoin.
-# Exemple : {"Alexandre": "Alex"}
-ALIASES = {
-    # "Alexandre": "Alex",
-}
+resultats_df = pd.read_excel(uploaded_file, sheet_name="Resultats", engine="openpyxl")
+details_df = pd.read_excel(uploaded_file, sheet_name="Matchs", engine="openpyxl")
 
 
 def normalize_name(name):
