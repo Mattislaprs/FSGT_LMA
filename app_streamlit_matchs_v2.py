@@ -5,19 +5,21 @@ from collections import defaultdict
 import streamlit as st
 import pandas as pd
 
+@st.cache_data
+def load_data(uploaded_file):
+    resultats = pd.read_excel(uploaded_file, sheet_name="Resultats", engine="openpyxl")
+    details = pd.read_excel(uploaded_file, sheet_name="Matchs", engine="openpyxl")
+    return resultats, details
+
 st.set_page_config(page_title="Stats Matchs", layout="wide")
 
-uploaded_file = st.file_uploader(
-    "Dépose ton fichier Excel",
-    type=["xlsx"]
-)
+uploaded_file = st.file_uploader("Dépose ton fichier Excel", type=["xlsx"])
 
 if uploaded_file is None:
     st.info("Ajoute un fichier Excel pour afficher les données.")
     st.stop()
 
-resultats_df = pd.read_excel(uploaded_file, sheet_name="Resultats", engine="openpyxl")
-details_df = pd.read_excel(uploaded_file, sheet_name="Matchs", engine="openpyxl")
+resultats_df, details_df = load_data(uploaded_file)
 
 
 def normalize_name(name):
